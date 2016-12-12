@@ -5,33 +5,21 @@ import logging
 import os
 import signal
 import sys
-import time
 import traceback
 from socket import error
 
 import argparse
-import dateutil.tz
 import yaml
-from config import load_rules
-from croniter import croniter
+from config import load_config
 from elasticsearch.exceptions import ElasticsearchException
-from util import add_raw_postfix
-from util import cronite_datetime_to_timestamp
-from util import dt_to_ts
-from util import dt_to_unixms
-from util import EAException
-from util import ElastReporter_logger
-from util import elasticsearch_client
-from util import format_index
-from util import lookup_es_key
-from util import pretty_ts
-from util import seconds
-from util import set_es_key
-from util import ts_add
-from util import td_add
-from util import ts_now
-from util import ts_to_dt
-from util import unix_to_dt
+
+from es_util import ElastReporter_logger
+from es_util import elasticsearch_client
+
+from time_util import dt_to_ts
+from time_util import dt_to_unixms
+from time_util import td_add
+from time_util import ts_now
 
 
 class ElastReporter():
@@ -45,7 +33,7 @@ class ElastReporter():
     to rules and alerts. In each rule in conf['rules'], the RuleType and Alerter
     instances live under 'type' and 'alerts', respectively. The conf dictionary
     should not be passed directly from a configuration file, but must be populated
-    by config.py:load_rules instead. """
+    by config.py:load_config instead. """
 
     def parse_args(self, args):
         parser = argparse.ArgumentParser()
@@ -85,7 +73,7 @@ class ElastReporter():
             tracer.setLevel(logging.INFO)
             tracer.addHandler(logging.FileHandler(self.args.es_debug_trace))
 
-        self.conf = load_rules(self.args)
+        self.conf = load_config(self.args)
         self.max_query_size = self.conf['max_query_size']
         self.scroll_keepalive = self.conf['scroll_keepalive']
         self.writeback_index = self.conf['writeback']['index']
@@ -244,7 +232,7 @@ class ElastReporter():
 
 def handle_signal(signal, frame):
     ElastReporter_logger.info(
-        'SIGINT received, stopping ES Quality Reporter...')
+        'SIGINT received, stopping ES Reporter...')
     # use os._exit to exit immediately and avoid someone catching SystemExit
     os._exit(0)
 
