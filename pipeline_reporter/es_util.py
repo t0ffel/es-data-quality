@@ -4,6 +4,8 @@ import logging
 from elasticsearch import RequestsHttpConnection
 from elasticsearch.client import Elasticsearch
 
+from time_util import dt_to_ts
+
 logging.basicConfig()
 ElastReporter_logger = logging.getLogger('elastalert')
 
@@ -182,3 +184,34 @@ def build_es_conn_config(conf):
         parsed_conf['es_url_prefix'] = conf['es_url_prefix']
 
     return parsed_conf
+
+def get_query(raw_query, starttime=None, endtime=None, sort=True, timestamp_field='@timestamp', to_ts_func=dt_to_ts, desc=False):
+    """ Returns a query dict that will apply a list of filters, filter by
+    start and end time, and sort results by timestamp.
+
+    :param raw_query: A lucene query to use.
+    :param starttime: A timestamp to use as the start time of the query.
+    :param endtime: A timestamp to use as the end time of the query.
+    :param sort: If true, sort results by timestamp. (Default True)
+    :return: A query dictionary to pass to Elasticsearch.
+    """
+    simple_query = {
+        "query_string": {
+            "query": raw_query
+        }
+    }
+    starttime = to_ts_func(starttime)
+    endtime = to_ts_func(endtime)
+    if starttime and endtime:
+        es_filters = {'bool':
+                      {'must': {'range':
+                                {timestamp_field: {'gt': starttime,
+                                                   'lte': endtime}}}}}
+        query = {'query': {'filtered': {'query': simple_query,
+                                        'filter': es_filters}}}
+    else:
+        query = {'query': simple_query}
+    if sort:
+        query['sort'] = [
+            {timestamp_field: {'order': 'desc' if desc else 'asc'}}]
+    return query

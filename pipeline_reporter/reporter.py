@@ -15,6 +15,7 @@ from elasticsearch.exceptions import ElasticsearchException
 
 from es_util import ElastReporter_logger
 from es_util import elasticsearch_client
+from es_util import get_query
 
 from time_util import dt_to_ts
 from time_util import dt_to_unixms
@@ -102,50 +103,18 @@ class ElastReporter():
         else:
             return index
 
-    @staticmethod
-    def get_query(raw_query, starttime=None, endtime=None, sort=True, timestamp_field='@timestamp', to_ts_func=dt_to_ts, desc=False):
-        """ Returns a query dict that will apply a list of filters, filter by
-        start and end time, and sort results by timestamp.
-
-        :param raw_query: A lucene query to use.
-        :param starttime: A timestamp to use as the start time of the query.
-        :param endtime: A timestamp to use as the end time of the query.
-        :param sort: If true, sort results by timestamp. (Default True)
-        :return: A query dictionary to pass to Elasticsearch.
-        """
-        simple_query = {
-            "query_string": {
-                "query": raw_query
-            }
-        }
-        starttime = to_ts_func(starttime)
-        endtime = to_ts_func(endtime)
-        if starttime and endtime:
-            es_filters = {'bool':
-                          {'must': {'range':
-                                    {timestamp_field: {'gt': starttime,
-                                                       'lte': endtime}}}}}
-            query = {'query': {'filtered': {'query': simple_query,
-                                            'filter': es_filters}}}
-        else:
-            query = {'query': simple_query}
-        if sort:
-            query['sort'] = [
-                {timestamp_field: {'order': 'desc' if desc else 'asc'}}]
-        return query
-
     def get_pipeline_queries(self):
         """Query for pipeline definitions and return the array of queries"""
         ElastReporter_logger.debug("conf is {}".format(self.conf))
         #self.current_es = elasticsearch_client(self.conf)
 
-        pl_query = self.get_query("*")
+        pl_query = get_query("*")
         ElastReporter_logger.debug(
             "Query to collect pipelines {}".format(pl_query))
         scroll_keepalive = '30s'
         index = self.writeback_index
         res = self.writeback_es.search(scroll=scroll_keepalive, index=index,
-                                     body=pl_query, ignore_unavailable=True)
+                                       body=pl_query, ignore_unavailable=True)
         #ElastReporter_logger.debug("result is {}".format(str(res)))
         #ElastReporter_logger.debug("hits: {}".format(res))
         hits = res['hits']['hits']
@@ -172,16 +141,17 @@ class ElastReporter():
         endtime = ts_now()
         starttime = td_add(endtime, datetime.timedelta(days=-7))
         #import pdb; pdb.set_trace()
-        peer_query = self.get_query(peer_lc_query, starttime=starttime,
-                                    endtime=endtime, to_ts_func=dt_to_unixms)
-        ElastReporter_logger.debug("Peer validation query: {0}".format(peer_query))
+        peer_query = get_query(peer_lc_query, starttime=starttime,
+                               endtime=endtime, to_ts_func=dt_to_unixms)
+        ElastReporter_logger.debug(
+            "Peer validation query: {0}".format(peer_query))
         scroll_keepalive = '30s'
         res = self.current_es.search(scroll=scroll_keepalive, index=index,
                                      body=peer_query, ignore_unavailable=True)
         # ElastReporter_logger.debug("result is {}".format(str(res)))
         if res['hits']['total'] != 0:
-            ElastReporter_logger.error('Conflict detected, sample: {0}'.format(res['hits']['hits'][0]))
-
+            ElastReporter_logger.error(
+                'Conflict detected, sample: {0}'.format(res['hits']['hits'][0]))
 
     def writeback(self, doc_type, body):
         # Convert any datetime objects to timestamps
@@ -229,6 +199,7 @@ class ElastReporter():
             ElastReporter_logger.info('Rule %s disabled', rule['name'])
         if self.notify_email:
             self.send_notification_email(exception=exception, rule=rule)
+
 
 def handle_signal(signal, frame):
     ElastReporter_logger.info(
