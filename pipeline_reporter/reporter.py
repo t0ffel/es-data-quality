@@ -115,7 +115,8 @@ class ElastReporter():
         scroll_keepalive = '30s'
         index = self.writeback_index
         res = self.writeback_es.search(scroll=scroll_keepalive, index=index,
-                                       body=pl_query, ignore_unavailable=True)
+                                       body=pl_query, ignore_unavailable=True,
+                                       size=1000)
         #ElastReporter_logger.debug("result is {}".format(str(res)))
         #ElastReporter_logger.debug("hits: {}".format(res))
         hits = res['hits']['hits']
@@ -126,6 +127,27 @@ class ElastReporter():
             named_queries.append({'_id': id, 'query': query})
         ElastReporter_logger.debug("Queries are {}".format(named_queries))
         return named_queries
+
+    def not_in_pipelines(self, named_queries, index):
+        """Return None if everything's in pipelines, sample of item out of pipeline if there is anything."""
+        raw_query = ""
+        for iter_q in named_queries:
+            raw_query += " OR (" + iter_q['query'] + ")"
+        raw_query = "NOT (" + raw_query[4:] + ")"
+        ElastReporter_logger.error('RAW query is:{}'.format(raw_query))
+        endtime = ts_now()
+        starttime = endtime + datetime.timedelta(days=-self.days_range)
+        peer_query = get_query(raw_query, starttime=starttime,
+                               endtime=endtime, to_ts_func=dt_to_unixms)
+        scroll_keepalive = '30s'
+        res = self.current_es.search(scroll=scroll_keepalive, index=index,
+                                     body=peer_query, ignore_unavailable=True)
+        if res['hits']['total'] != 0:
+            ElastReporter_logger.error('Detected items out of pipelines:')
+            ElastReporter_logger.info('{0}'.format(json.dumps(res['hits']['hits'], indent=2)))
+            return res['hits']['hits']
+        else:
+            return None
 
     def validate_consistency(self, named_queries, index):
         for i, query in enumerate(named_queries):
@@ -255,6 +277,7 @@ def main(args=None):
     client = ElastReporter(args)
     named_queries = client.get_pipeline_queries()
     client.validate_consistency(named_queries, 'logstash-*')
+    client.not_in_pipelines(named_queries, 'logstash-*')
 
 if __name__ == '__main__':
     sys.exit(main(sys.argv[1:]))
