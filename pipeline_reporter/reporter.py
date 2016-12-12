@@ -82,6 +82,7 @@ class ElastReporter():
         self.current_es = elasticsearch_client(self.conf)
         self.current_es_addr = None
         self.silence_cache = {}
+        self.days_range = self.conf['days_range']
 
         self.writeback_es = elasticsearch_client(self.conf['writeback'])
 
@@ -127,31 +128,70 @@ class ElastReporter():
         return named_queries
 
     def validate_consistency(self, named_queries, index):
-        for query in named_queries:
-            self.validate_against_peers(query, named_queries, index)
+        for i, query in enumerate(named_queries):
+            peer_queries = named_queries[:]
+            del peer_queries[i]
+            conflict = self.validate_against_peers(query, peer_queries, index)
+            if conflict:
+                cnfl = self.pinpoint_conflict(query, peer_queries, index)
+                if not cnfl:
+                    import pdb; pdb.set_trace()
+                ElastReporter_logger.error(
+                    'Pipeline {0} conflicts with pipeline {1}'.format(
+                        query['_id'], cnfl['_id']))
+                precise_conflict = self.validate_against_peers(query, [cnfl], index)
+                ElastReporter_logger.info(
+                    'Conflict detected, sample: {0}'.format(
+                        json.dumps(precise_conflict, indent=2)))
+            else:
+                ElastReporter_logger.info(
+                    'Pipeline {0} doesn\'t have conflicts'.format(query['_id']))
 
     def validate_against_peers(self, query, named_queries, index):
+        """Checks if there is a conflict between query and named_queries
+
+        Returns: None if there is no conflict or sample conflict result"""
+        ElastReporter_logger.debug(
+            "Validating pipeline '{0}' against peers".format(query['_id']))
+        # ElastReporter_logger.debug('Peers: {0}'.format(named_queries))
         peer_lc_query = ""
         for iter_q in named_queries:
-            if iter_q['_id'] == query['_id']:
-                continue
             peer_lc_query += " OR (" + iter_q['query'] + ")"
         peer_lc_query = "(" + peer_lc_query[4:] + ")"
         peer_lc_query += "AND (" + query['query'] + ")"
         endtime = ts_now()
-        starttime = td_add(endtime, datetime.timedelta(days=-7))
-        #import pdb; pdb.set_trace()
+        starttime = endtime + datetime.timedelta(days=-self.days_range)
         peer_query = get_query(peer_lc_query, starttime=starttime,
                                endtime=endtime, to_ts_func=dt_to_unixms)
-        ElastReporter_logger.debug(
-            "Peer validation query: {0}".format(peer_query))
         scroll_keepalive = '30s'
         res = self.current_es.search(scroll=scroll_keepalive, index=index,
                                      body=peer_query, ignore_unavailable=True)
         # ElastReporter_logger.debug("result is {}".format(str(res)))
         if res['hits']['total'] != 0:
-            ElastReporter_logger.error(
-                'Conflict detected, sample: {0}'.format(res['hits']['hits'][0]))
+            #            self.pinpoint_conflict(query, named_queries, index)
+            return res['hits']['hits'][0]
+        else:
+            return None
+
+    def pinpoint_conflict(self, query, named_queries, index):
+        """Return id of the first conflicting pipeline.
+
+        query is not in named_queries, initial conflict is present."""
+        if len(named_queries) == 0:
+            return None
+        if len(named_queries) == 1:
+            res = self.validate_against_peers(query, named_queries, index)
+            if res:
+                return named_queries[0]
+        left_peers = named_queries[:len(named_queries) / 2]
+        left_res = self.validate_against_peers(query, left_peers, index)
+        if left_res:
+            return self.pinpoint_conflict(query, left_peers, index)
+        else:
+            right_peers = named_queries[len(named_queries) / 2:]
+            right_res = self.validate_against_peers(query, right_peers, index)
+            if right_res:
+                return self.pinpoint_conflict(query, right_peers, index)
 
     def writeback(self, doc_type, body):
         # Convert any datetime objects to timestamps

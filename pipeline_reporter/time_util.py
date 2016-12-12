@@ -75,7 +75,6 @@ def unix_to_dt(ts):
 
 
 def dt_to_unix(dt):
-    #import pdb; pdb.set_trace()
     return total_seconds(dt - datetime.datetime(1970, 1, 1, tzinfo=dateutil.tz.tzutc()))
 
 
