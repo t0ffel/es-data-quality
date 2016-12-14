@@ -143,31 +143,34 @@ class ElastReporter():
         res = self.current_es.search(scroll=scroll_keepalive, index=index,
                                      body=peer_query, ignore_unavailable=True)
         if res['hits']['total'] != 0:
-            ElastReporter_logger.error('Detected items out of pipelines:')
+            ElastReporter_logger.error('Detected {0} items out of pipelines.'.format(res['hits']['total']))
             ElastReporter_logger.info('{0}'.format(json.dumps(res['hits']['hits'], indent=2)))
             return res['hits']['hits']
         else:
             return None
 
     def validate_consistency(self, named_queries, index):
-        for i, query in enumerate(named_queries):
-            peer_queries = named_queries[:]
-            del peer_queries[i]
-            conflict = self.validate_against_peers(query, peer_queries, index)
-            if conflict:
-                cnfl = self.pinpoint_conflict(query, peer_queries, index)
-                if not cnfl:
-                    import pdb; pdb.set_trace()
-                ElastReporter_logger.error(
-                    'Pipeline {0} conflicts with pipeline {1}'.format(
-                        query['_id'], cnfl['_id']))
-                precise_conflict = self.validate_against_peers(query, [cnfl], index)
-                ElastReporter_logger.info(
-                    'Conflict detected, sample: {0}'.format(
-                        json.dumps(precise_conflict, indent=2)))
-            else:
-                ElastReporter_logger.info(
-                    'Pipeline {0} doesn\'t have conflicts'.format(query['_id']))
+        if len(named_queries) == 1:
+            ElastReporter_logger.info(
+                'Pipeline {0} doesn\'t have conflicts'.format(named_queries[0]['_id']))
+            return
+        query = named_queries.pop()
+        conflict = self.validate_against_peers(query, named_queries, index)
+        if conflict:
+            cnfl = self.pinpoint_conflict(query, named_queries, index)
+            if not cnfl:
+                import pdb; pdb.set_trace()
+            ElastReporter_logger.error(
+                'Pipeline {0} conflicts with pipeline {1}'.format(
+                    query['_id'], cnfl['_id']))
+            precise_conflict = self.validate_against_peers(query, [cnfl], index)
+            ElastReporter_logger.info(
+                'Conflict detected, sample: {0}'.format(
+                    json.dumps(precise_conflict, indent=2)))
+        else:
+            ElastReporter_logger.info(
+                'Pipeline {0} doesn\'t have conflicts'.format(query['_id']))
+        return self.validate_consistency(named_queries, index)
 
     def validate_against_peers(self, query, named_queries, index):
         """Checks if there is a conflict between query and named_queries
@@ -183,10 +186,10 @@ class ElastReporter():
         peer_lc_query += "AND (" + query['query'] + ")"
         endtime = ts_now()
         starttime = endtime + datetime.timedelta(days=-self.days_range)
+        #ElastReporter_logger.debug('Query: {0}'.format(peer_lc_query))
         peer_query = get_query(peer_lc_query, starttime=starttime,
                                endtime=endtime, to_ts_func=dt_to_unixms)
-        scroll_keepalive = '30s'
-        res = self.current_es.search(scroll=scroll_keepalive, index=index,
+        res = self.current_es.search(index=index,
                                      body=peer_query, ignore_unavailable=True)
         # ElastReporter_logger.debug("result is {}".format(str(res)))
         if res['hits']['total'] != 0:
@@ -276,7 +279,7 @@ def main(args=None):
         args = sys.argv[1:]
     client = ElastReporter(args)
     named_queries = client.get_pipeline_queries()
-    client.validate_consistency(named_queries, 'logstash-*')
+    client.validate_consistency(named_queries[:], 'logstash-*')
     client.not_in_pipelines(named_queries, 'logstash-*')
 
 if __name__ == '__main__':
