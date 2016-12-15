@@ -7,7 +7,7 @@ from elasticsearch.client import Elasticsearch
 from time_util import dt_to_ts
 
 logging.basicConfig()
-ElastReporter_logger = logging.getLogger('elastalert')
+ElastReporter_logger = logging.getLogger('es_pipelines_reporter')
 
 
 def new_get_event_ts(ts_field):
@@ -185,6 +185,9 @@ def build_es_conn_config(conf):
 
     return parsed_conf
 
+def combine_query(must_query, must_not_query):
+    pass
+
 def get_query(raw_query, starttime=None, endtime=None, sort=True, timestamp_field='@timestamp', to_ts_func=dt_to_ts, desc=False):
     """ Returns a query dict that will apply a list of filters, filter by
     start and end time, and sort results by timestamp.
@@ -204,9 +207,9 @@ def get_query(raw_query, starttime=None, endtime=None, sort=True, timestamp_fiel
     endtime = to_ts_func(endtime)
     if starttime and endtime:
         es_filters = {'bool':
-                      {'must': {'range':
+                      {'must': [{'range':
                                 {timestamp_field: {'gt': starttime,
-                                                   'lte': endtime}}}}}
+                                                   'lte': endtime}}}]}}
         query = {'query': {'filtered': {'query': simple_query,
                                         'filter': es_filters}}}
     else:

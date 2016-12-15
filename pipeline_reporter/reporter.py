@@ -143,7 +143,7 @@ class ElastReporter():
         res = self.current_es.search(scroll=scroll_keepalive, index=index,
                                      body=peer_query, ignore_unavailable=True)
         if res['hits']['total'] != 0:
-            ElastReporter_logger.error('Detected {0} items out of pipelines.'.format(res['hits']['total']))
+            ElastReporter_logger.debug('Detected {0} items out of pipelines.'.format(res['hits']['total']))
             ElastReporter_logger.info('{0}'.format(json.dumps(res['hits']['hits'], indent=2)))
             return res['hits']['hits']
         else:
