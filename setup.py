@@ -17,7 +17,6 @@ setup(
     entry_points={
         'console_scripts': ['reporter=pipeline_reporter.reporter:main']},
     packages=find_packages(),
-    package_data={'elastalert': ['schema.yaml']},
     install_requires=[
         'argparse',
         'elasticsearch<3.0.0',  # Elastalert is not yet compatible with ES5
@@ -29,6 +28,7 @@ setup(
         'simplejson',
         'croniter',
         'configparser',
-        'texttable'
+        'texttable',
+        'requests'
     ]
 )
